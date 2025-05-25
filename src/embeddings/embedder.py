@@ -28,11 +28,5 @@ def create_embeddings():
         encode_kwargs=encode_kwargs
     )
 
-    # converting documents into strings
-    text_chunks = [chunk.page_content for chunk in chunks]
-
-    # embedding strings
-    embedding = hf.embed_documents(text_chunks)
-    print(f"Length of embedding {len(embedding)}")
-
-    return embedding
+    # return embedding
+    return hf

@@ -17,8 +17,8 @@ def chunk_all_documents():
 
         chunks = text_splitter.split_documents(documents)
 
-        print(f"Total chunks: {len(chunks)}")
-        print(f"Example chunk:\n{chunks[1]}")
+        # print(f"Total chunks: {len(chunks)}")
+        # print(f"Example chunk:\n{chunks[1]}")
         return chunks
     except Exception as e:
         print(f"Error during document chunking: {e}")
