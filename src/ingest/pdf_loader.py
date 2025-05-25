@@ -3,7 +3,7 @@ import os
 
 directory_path = "data/raw"
 
-def load_all_pdfs(directory_path):
+def load_all_pdfs(directory_path="data/raw"):
     list_of_all_docs = []
     list_of_files = os.listdir(directory_path)
     for file in list_of_files:

@@ -177,3 +177,6 @@ cython_debug/
 
 # pdf files
 data/raw
+
+# added vectorestore
+src/db/
