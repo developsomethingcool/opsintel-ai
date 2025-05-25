@@ -5,7 +5,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../")))
 from embeddings.embedder import create_embeddings
 from ingest.pdf_loader import load_all_pdfs
 
-def get_embeddings():
+def get_vectorestore():
     # create embeddings
     hf_embeddings = create_embeddings()
 
