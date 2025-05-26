@@ -14,10 +14,10 @@ from langgraph.prebuilt import ToolNode
 from langgraph.prebuilt import tools_condition
 
 
-def build_agentic_rag_graph():
+def build_agentic_rag_graph(vectorestore):
     
     # Loading vectorestore and retriever
-    vectorestore = get_vectorestore()
+    #vectorestore = get_vectorestore()
     retriever = vectorestore.as_retriever(search_kwargs={"k": 3})
 
         

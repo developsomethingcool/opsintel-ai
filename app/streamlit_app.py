@@ -5,9 +5,7 @@ import sys, os
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../")))
 from src.rag.agentic_rag import build_agentic_rag_graph, run_agentic_rag
-
-# Build your RAG graph once
-graph = build_agentic_rag_graph()
+from src.vectorestore.chroma_client import get_vectorestore
 
 # Page config
 st.set_page_config(
@@ -15,6 +13,24 @@ st.set_page_config(
     layout="wide",  # use full-width for more breathing room
     initial_sidebar_state="auto",
 )
+
+# load and cache vectorestore
+@st.cache_resource
+def get_vectorestore_cached():
+    return get_vectorestore()
+
+
+if "vectorestore" not in st.session_state:
+    st.session_state.vectorestore = get_vectorestore_cached()
+
+if "rag_graph" not in st.session_state:
+    st.session_state.rag_graph = build_agentic_rag_graph(st.session_state.vectorestore)
+
+graph = st.session_state.rag_graph
+
+# Build your RAG graph once
+#graph = build_agentic_rag_graph()
+
 
 # Sidebar for settings / about
 with st.sidebar:
