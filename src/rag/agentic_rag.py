@@ -7,217 +7,194 @@ from langchain.tools.retriever import create_retriever_tool
 from langgraph.graph import MessagesState
 from pydantic import BaseModel, Field
 from typing import Literal
-from langchain_core.messages import convert_to_messages
+from langchain_core.messages import convert_to_messages, ToolMessage
 
 from langgraph.graph import StateGraph, START, END
 from langgraph.prebuilt import ToolNode
 from langgraph.prebuilt import tools_condition
 
-vectorestore = get_vectorestore()
-retriever = vectorestore.as_retriever()
 
-# creation and testing of the tool
-retriever_tool = create_retriever_tool(
-    retriever,
-    "retriever of the report",
-    "Search and retrieve what the report mentioned about the economics",
-)
+def build_agentic_rag_graph():
+    
+    # Loading vectorestore and retriever
+    vectorestore = get_vectorestore()
+    retriever = vectorestore.as_retriever(search_kwargs={"k": 3})
 
-retriever_tool.invoke({"query": "report on economics"})
+        
+    # definition of llms
+    chat_llm = ChatOllama(model="qwen2.5:14b")
+    grader_llm = ChatOllama(model="qwen2.5:14b")
 
-llm = ChatOllama(model="llama3.1")
 
-def generate_query_or_respond(state: MessagesState):
-    """Call the model to generate a response based on the current state. Given
-    the question, it will decide to retrieve using the retriever tool, or simply respond to the user.
-    """
-    response = (
-        llm.bind_tools([retriever_tool]).invoke(state["messages"])
-    )
-    return {"messages": [response]}
-
-# Testing it on random input
-input = {"messages": [{"role": "user", "content": "hello!"}]}
-generate_query_or_respond(input)["messages"][-1].pretty_print()
-
-input = {
-    "messages": [
-        {
-            "role": "user",
-            "content": "What is the current state of the economics"
-        }
-    ]
-}
-
-generate_query_or_respond(input)["messages"][-1].pretty_print()
-
-# Grade Documents
-
-GRADE_PROMPT = (
-    "You are a grader assessing relevance of a retrieved document to a user question. \n "
-    "Here is the retrieved document: \n\n {context} \n\n"
-    "Here is the user question: {question} \n"
-    "If the document contains keyword(s) or semantic meaning related to the user question, grade it as relevant. \n"
-    "Give a binary score 'yes' or 'no' score to indicate whether the document is relevant to the question."
-)
-
-class GradeDocuments(BaseModel):
-    """Grade documents using a binary score for relevance check."""
-
-    binary_score: str = Field(
-        description="Relevance score: 'yes' if relevant, or 'no' if not relevant"
+    # creation and testing of the tool
+    retriever_tool = create_retriever_tool(
+        retriever,
+        "retriever of the report",
+        "Search and retrieve what the Dragi Report includes regarding the geopolitical, economic, technological, and security-related challenges facing the European Union, offering strategic recommendations to strengthen the EU's resilience, competitiveness, and global leadership.",
     )
 
-grader_model = ChatOllama(model="llama3.1")
-
-def grade_documents(state: MessagesState) -> Literal["generate_answer", "rewrite_question"]:
-    """Determine whether the retrieved documents are relevant to the question."""
-    question = state["messages"][0].content
-    context = state["messages"][-1].content
-
-    prompt = GRADE_PROMPT.format(question=question, context=context)
-    response = (
-        grader_model.with_structured_output(GradeDocuments).invoke(
-            [{"role": "user", "content": prompt}]
+    def generate_query_or_respond(state: MessagesState):
+        """Call the model to generate a response based on the current state. Given
+        the question, it will decide to retrieve using the retriever tool, or simply respond to the user.
+        """
+        response = (
+            chat_llm.bind_tools([retriever_tool]).invoke(state["messages"])
         )
+        return  {"messages": state["messages"] + [response]}
+
+    GRADE_PROMPT = (
+        "You are a grader assessing relevance of a retrieved document to a user question. \n "
+        "Here is the retrieved document: \n\n {context} \n\n"
+        "Here is the user question: {question} \n"
+        "If the document contains keyword(s) or semantic meaning related to the user question, grade it as relevant. \n"
+        "Give a binary score 'yes' or 'no' score to indicate whether the document is relevant to the question."
     )
 
-    score = response.binary_score
+    class GradeDocuments(BaseModel):
+        """Grade documents using a binary score for relevance check."""
 
-    if score == "yes":
-        return "generate_answer"
-    else:
-        return "rewrite_question"
+        binary_score: str = Field(
+            description="Relevance score: 'yes' if relevant, or 'no' if not relevant"
+        )
 
-# Rewrite question
+    def grade_documents(state: MessagesState) -> Literal["generate_answer", "rewrite_question"]:
+        """Determine whether the retrieved documents are relevant to the question."""
+        question = state["messages"][0].content
+        #context = state["messages"][-1].content
 
-REWRITE_PROMPT = (
-    "Look at the input and try to reason about the underlying semantic intent / meaning.\n"
-    "Here is the initial question:"
-    "\n ------- \n"
-    "{question}"
-    "\n ------- \n"
-    "Formulate an improved question:"
-)
+        # Robust retrieval of the last ToolMessage
+        context = next(
+            (msg.content for msg in reversed(state["messages"]) if isinstance(msg, ToolMessage)),
+            ""
+        )
 
-def rewrite_question(state: MessagesState):
-    """Rewrite the original user question."""
-    messages = state["messages"]
-    question = messages[0].content
-    prompt = REWRITE_PROMPT.format(question=question)
-    response = llm.invoke([{"role": "user", "content": prompt}])
-    return {"messages": [{"role": "user", "content": response.content}]}
+        prompt = GRADE_PROMPT.format(question=question, context=context)
+        response = (
+            grader_llm.with_structured_output(GradeDocuments).invoke(
+                [{"role": "user", "content": prompt}]
+            )
+        )
 
-input = {
-    "messages": convert_to_messages(
-        [
-            {
-                "role": "user",
-                "content": "What did Mario Dragi say about state of the economy",
-            },
-            {
-                "role": "assistant",
-                "content": "",
-                "tool_calls": [
-                    {
-                        "id": "1",
-                        "name": "retrieve_blog_posts",
-                        "args": {"query": "types of reward hacking"},
-                    }
-                ],
-            },
-            {"role": "tool", "content": "meow", "tool_call_id": "1"},
-        ]
+        score = response.binary_score
+
+        if score == "yes":
+            return "generate_answer"
+        else:
+            return "rewrite_question"
+
+    # Rewrite question
+
+    REWRITE_PROMPT = (
+        "Look at the input and try to reason about the underlying semantic intent / meaning.\n"
+        "Here is the initial question:"
+        "\n ------- \n"
+        "{question}"
+        "\n ------- \n"
+        "Formulate an improved question:"
     )
-}
 
-response = rewrite_question(input)
-print(response["messages"][-1]["content"])
+    def rewrite_question(state: MessagesState):
+        """Rewrite the original user question."""
+        rewrite_count = state.get("rewrite_count", 0)
 
-# Generate the answer
+        if rewrite_count >= 3:
+                # Give up after 3 rewrites
+                final_message = {
+                    "role": "assistant",
+                    "content": "Sorry, I couldn't find a relevant answer after several attempts.",
+                }
+                
+                return ({
+                    "messages": state["messages"] + [final_message],
+                    "rewrite_count": rewrite_count
+                }, END)
 
-GENERATE_PROMPT = (
-    "You are an assistant for question-answering tasks. "
-    "Use the following pieces of retrieved context to answer the question. "
-    "If you don't know the answer, just say that you don't know. "
-    "Use three sentences maximum and keep the answer concise.\n"
-    "Question: {question} \n"
-    "Context: {context}"
-)
-
-def generate_answer(state: MessagesState):
-    """Generate an answer."""
-    question = state["messages"][0].content
-    context = state["messages"][-1].content
-    prompt = GENERATE_PROMPT.format(question=question, context=context)
-    response = llm.invoke([{"role": "user", "content": prompt}])
-    return {"messages": [response]}
+        messages = state["messages"]
+        question = messages[0].content
+        prompt = REWRITE_PROMPT.format(question=question)
+        response = chat_llm.invoke([{"role": "user", "content": prompt}])
+        
+        new_message = {
+            "role": "user",
+            "content": response.content,
+        }
+        return {
+            "messages": state["messages"] + [new_message],
+            "rewrite_count": rewrite_count + 1
+        }
+        #return {"messages": [{"role": "user", "content": response.content}]}
 
 
-input = {
-    "messages": convert_to_messages(
-        [
-            {
-                "role": "user",
-                "content": "What did Mario Dragi say about state of the economy?",
-            },
-            {
-                "role": "assistant",
-                "content": "",
-                "tool_calls": [
-                    {
-                        "id": "1",
-                        "name": "retrieve_blog_posts",
-                        "args": {"query": "types of reward hacking"},
-                    }
-                ],
-            },
-            {
-                "role": "tool",
-                "content": "reward hacking can be categorized into two types: environment or goal misspecification, and reward tampering",
-                "tool_call_id": "1",
-            },
-        ]
+    # Generate the answer
+
+    GENERATE_PROMPT = (
+        "You are an assistant for question-answering tasks. "
+        "Use the following pieces of retrieved context to answer the question. "
+        "If you don't know the answer, just say that you don't know. "
+        "Use three sentences maximum and keep the answer concise.\n"
+        "Question: {question} \n"
+        "Context: {context}"
     )
-}
 
-response = generate_answer(input)
-response["messages"][-1].pretty_print()
+    def generate_answer(state: MessagesState):
+        """Generate an answer."""
+        question = state["messages"][0].content
+        
+        #context = state["messages"][-1].content
+        context = next(
+            (msg.content for msg in reversed(state["messages"]) if isinstance(msg, ToolMessage)),
+            ""
+        )
+
+        prompt = GENERATE_PROMPT.format(question=question, context=context)
+        response = chat_llm.invoke([{"role": "user", "content": prompt}])
+        #return {"messages": [response]}
+        return {"messages": state["messages"] + [response]}
 
 
-# Assemble the graph
-workflow = StateGraph(MessagesState)
-workflow.add_node(generate_query_or_respond)
-workflow.add_node("retrieve", ToolNode([retriever_tool]))
-workflow.add_node(rewrite_question)
-workflow.add_node(generate_answer)
+    # Assemble the graph
+    workflow = StateGraph(MessagesState)
+    workflow.add_node(generate_query_or_respond)
+    workflow.add_node("retrieve", ToolNode([retriever_tool]))
+    workflow.add_node(rewrite_question)
+    workflow.add_node(generate_answer)
 
-workflow.add_edge(START, "generate_query_or_respond")
-workflow.add_conditional_edges(
-    "generate_query_or_respond",
-    tools_condition,
-    {
-        "tools": "retrieve",
-        END: END,
-    },
-)
+    workflow.add_edge(START, "generate_query_or_respond")
+    workflow.add_conditional_edges(
+        "generate_query_or_respond",
+        tools_condition,
+        {
+            "tools": "retrieve",
+            END: END,
+        },
+    )
 
-# Edges taken after the 'action' node is called
+    # Edges taken after the 'action' node is called
 
-workflow.add_conditional_edges(
-    "retrieve",
-    grade_documents,
-    {
-        "generate_answer": "generate_answer",
-        "rewrite_question": "rewrite_question",
-    }
-)
+    workflow.add_conditional_edges(
+        "retrieve",
+        grade_documents,
+        {
+            "generate_answer": "generate_answer",
+            "rewrite_question": "rewrite_question",
+        }
+    )
 
-workflow.add_edge("generate_answer", END)
-workflow.add_edge("rewrite_question", "generate_query_or_respond")
+    workflow.add_edge("generate_answer", END)
+    workflow.add_edge("rewrite_question", "generate_query_or_respond")
 
-#Compile graph
-graph = workflow.compile()
+    #Compile graph
+    graph = workflow.compile()
+
+    return graph
+
+
+def run_agentic_rag(graph, state):
+    
+    result = graph.invoke(state)
+    # Parsing result messages
+    answer = result["messages"][-1].content if result["messages"] else "No answer found."
+    return answer
 
 # Visualize the graph
 #=================================
