@@ -1,5 +1,4 @@
-# opsintel-ai-
-# OpsintelAI - Document Intelligence Platform
+# opsintel-ai-Document Intelligence Platform
 
 A sophisticated document intelligence platform that provides both naive and agentic RAG (Retrieval-Augmented Generation) capabilities for analyzing PDF documents. Built with Streamlit, LangChain, and LangGraph.
 
